@@ -1110,21 +1110,27 @@ def create_expense():
 def get_inventory():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not has_role(user, ['Admin', 'Pharmacist']):
         return jsonify({'message': 'Unauthorized access'}), 403
-    page = request.args.get('page', 1, type=int)
-    per_page = 10
-    inventory = SuppliesInventory.query.paginate(page=page, per_page=per_page, error_out=False)
-    return jsonify({
-        'items': [{
-            'id': item.id,
-            'item_name': item.item_name,
-            'quantity': item.quantity,
-            'last_updated': item.last_updated.isoformat()
-        } for item in inventory.items],
-        'total': inventory.total,
-        'pages': inventory.pages
-    }), 200
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = 10
+        inventory = SuppliesInventory.query.paginate(page=page, per_page=per_page, error_out=False)
+        return jsonify({
+            'items': [{
+                'id': item.id,
+                'item_name': item.item_name,
+                'quantity': item.quantity,
+                'last_updated': item.last_updated.isoformat()
+            } for item in inventory.items],
+            'total': inventory.total,
+            'pages': inventory.pages
+        }), 200
+    except Exception as e:
+        error_log = ErrorLog(error_message=str(e), user_id=user.id)
+        db.session.add(error_log)
+        db.session.commit()
+        return jsonify({'message': 'Error fetching inventory'}), 500
 
 @app.route('/api/inventory', methods=['POST'])
 @jwt_required()
@@ -1517,6 +1523,30 @@ def schedule_maintenance():
         db.session.add(error_log)
         db.session.commit()
         return jsonify({'message': 'Error scheduling maintenance'}), 500
+
+@app.route('/api/beds', methods=['GET'])
+@jwt_required()
+def get_beds():
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    if not user or not has_role(user, ['Admin', 'Nurse']):
+        return jsonify({'message': 'Unauthorized access'}), 403
+    try:
+        beds = Bed.query.all()
+        beds_data = []
+        for bed in beds:
+            beds_data.append({
+                'id': bed.id,
+                'ward_id': bed.ward_id,
+                'bed_number': bed.bed_number,
+                'status': bed.status
+            })
+        return jsonify({'beds': beds_data}), 200
+    except Exception as e:
+        error_log = ErrorLog(error_message=str(e), user_id=user.id)
+        db.session.add(error_log)
+        db.session.commit()
+        return jsonify({'message': 'Error fetching beds'}), 500
 
 @app.route('/api/beds/reserve', methods=['POST'])
 @jwt_required()
