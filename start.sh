@@ -10,7 +10,7 @@ source venv/bin/activate
 # Check if database exists, if not initialize it
 if [ ! -f "hmis.db" ]; then
     echo "Database not found. Initializing..."
-    python seed.py
+    python init_db.py
 fi
 
 # Start the application

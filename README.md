@@ -52,8 +52,7 @@ A comprehensive Flask-based REST API for hospital management, including patient 
 
 5. **Initialize database**
    ```bash
-   flask db upgrade
-   python seed.py  # Optional: Load sample data
+   python init_db.py  # Creates tables and loads sample data
    ```
 
 6. **Run the application**
@@ -217,6 +216,25 @@ flask db upgrade
 ### API Testing
 
 The application is configured with CORS to allow frontend connections from `http://localhost:3000`.
+
+## Troubleshooting
+
+### Common Issues
+
+**Database table errors:** Run `python init_db.py` to initialize the database.
+
+**Migration conflicts:** Use `python init_db.py` instead of Flask migrations.
+
+**Port already in use:** Kill the existing process or use a different port.
+
+For detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+### Quick Reset
+```bash
+python reset_db.py  # Reset database with confirmation
+# or
+rm -f hmis.db && python init_db.py  # Force reset
+```
 
 ## License
 
