@@ -20,11 +20,11 @@ with app.app_context():
 
     # Seed Users
     users = [
-        {'username': 'admin', 'password_hash': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
-        {'username': 'doctor1', 'password_hash': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
-        {'username': 'nurse1', 'password_hash': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
-        {'username': 'it1', 'password_hash': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
-        {'username': 'labtech1', 'password_hash': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
+        {'username': 'admin', 'password': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
+        {'username': 'doctor1', 'password': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
+        {'username': 'nurse1', 'password': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
+        {'username': 'it1', 'password': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
+        {'username': 'labtech1', 'password': generate_password_hash('password123'), 'created_at': datetime.now(timezone.utc)},
     ]
     for user in users:
         db.session.add(User(**user))
