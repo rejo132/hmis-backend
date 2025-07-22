@@ -6,12 +6,17 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timezone, date
 from flask_cors import CORS
 import os
+import logging
 
 app = Flask(__name__)
 app.config.from_object('config.Config')
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 jwt = JWTManager(app)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
 
@@ -969,8 +974,26 @@ def create_employee():
     if not user or not has_role(user, 'Admin'):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('username') or not data.get('password') or not data.get('role'):
-        return jsonify({'message': 'Missing required fields: username, password, role'}), 422
+    logger.info(f"POST /api/employees - Received data: {data}")
+    
+    # Enhanced validation with detailed error messages
+    if not data:
+        logger.warning("POST /api/employees - No request body provided")
+        return jsonify({'message': 'Request body is required'}), 422
+    
+    missing_fields = []
+    if not data.get('username'):
+        missing_fields.append('username')
+    if not data.get('password'):
+        missing_fields.append('password')
+    if not data.get('role'):
+        missing_fields.append('role')
+    
+    if missing_fields:
+        return jsonify({
+            'message': f'Missing required fields: {", ".join(missing_fields)}',
+            'received_data': {k: v for k, v in data.items() if k != 'password'}  # Don't log password
+        }), 422
     try:
         if User.query.filter_by(username=data.get('username')).first():
             return jsonify({'message': 'Username already exists'}), 400
@@ -1619,27 +1642,48 @@ def reserve_bed():
     if not user or not has_role(user, 'Admin'):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
+    logger.info(f"POST /api/beds/reserve - Received data: {data}")
+    
+    # Enhanced validation with better error messages
+    if not data:
+        logger.warning("POST /api/beds/reserve - No request body provided")
+        return jsonify({'message': 'Request body is required'}), 422
     
     # Handle both object and direct value formats
     if isinstance(data, dict):
         bed_id = data.get('bedId')
-        patient_id = data.get('patient_id')
+        patient_id = data.get('patient_id', 1)  # Default to patient ID 1 if not provided
     else:
         # If data is not a dict, treat it as bedId and use default patient_id
         bed_id = data
         patient_id = 1  # Default patient ID for reservation
     
     if not bed_id:
-        return jsonify({'message': 'Missing required field: bedId'}), 422
+        return jsonify({
+            'message': 'Missing required field: bedId',
+            'received_data': data
+        }), 422
     try:
         bed = db.session.get(Bed, bed_id)
         if not bed:
-            return jsonify({'message': 'Bed not found'}), 404
+            return jsonify({
+                'message': 'Bed not found',
+                'bed_id': bed_id
+            }), 404
         patient = db.session.get(Patient, patient_id)
         if not patient:
-            return jsonify({'message': 'Patient not found'}), 404
+            return jsonify({
+                'message': 'Patient not found',
+                'patient_id': patient_id
+            }), 404
         if bed.status != 'Available':
-            return jsonify({'message': 'Bed not available'}), 400
+            logger.warning(f"POST /api/beds/reserve - Bed {bed_id} not available. Current status: {bed.status}")
+            return jsonify({
+                'message': 'Bed not available',
+                'bed_id': bed_id,
+                'current_status': bed.status,
+                'required_status': 'Available'
+            }), 400
         bed.status = 'Reserved'
         bed_allocation = BedAllocation(
             bed_id=bed.id,
