@@ -255,8 +255,8 @@ with app.app_context():
 
     # Seed PatientLogins
     patient_logins = [
-        {'patient_id': 1, 'username': 'johndoe', 'password_hash': generate_password_hash('patient123')},
-        {'patient_id': 2, 'username': 'janesmith', 'password_hash': generate_password_hash('patient123')},
+        {'patient_id': 1, 'username': 'johndoe', 'password': generate_password_hash('patient123')},
+        {'patient_id': 2, 'username': 'janesmith', 'password': generate_password_hash('patient123')},
     ]
     for login in patient_logins:
         db.session.add(PatientLogin(**login))
