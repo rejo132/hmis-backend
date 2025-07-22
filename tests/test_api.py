@@ -11,7 +11,11 @@ from flask_jwt_extended import create_access_token
 @pytest.fixture
 def client():
     app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL').replace('hmis_db', 'hmis_test')
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        app.config['SQLALCHEMY_DATABASE_URI'] = database_url.replace('hmis_db', 'hmis_test')
+    else:
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///hmis_test.db'
     with app.test_client() as client:
         with app.app_context():
             db.create_all()
