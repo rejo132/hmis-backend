@@ -601,7 +601,7 @@ def add_patient():
 def get_patients():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin') and not has_role(user, 'Doctor'):
+    if not user or not has_role(user, ['Admin', 'Doctor', 'IT', 'Nurse', 'Receptionist']):
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
@@ -610,9 +610,10 @@ def get_patients():
         'patients': [{
             'id': p.id,
             'name': p.name,
-            'dob': p.dob.isoformat(),
+            'dob': p.dob.isoformat() if p.dob else None,
             'contact': p.contact,
-            'address': p.address
+            'address': p.address,
+            'created_at': p.created_at.isoformat()
         } for p in patients.items],
         'total': patients.total,
         'pages': patients.pages
@@ -1576,11 +1577,14 @@ def get_beds():
         beds = Bed.query.all()
         beds_data = []
         for bed in beds:
+            # Get current allocation if any
+            allocation = BedAllocation.query.filter_by(bed_id=bed.id, discharge_date=None).first()
             beds_data.append({
                 'id': bed.id,
-                'ward_id': bed.ward_id,
+                'ward': bed.ward_id,
                 'bed_number': bed.bed_number,
-                'status': bed.status
+                'status': bed.status,
+                'patient_id': allocation.patient_id if allocation else None
             })
         return jsonify({'beds': beds_data}), 200
     except Exception as e:
