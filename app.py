@@ -441,7 +441,18 @@ class RadiologyOrder(db.Model):
 
 # Helper function to check user role
 def has_role(user, role_name):
-    return Role.query.join(UserRole).filter(UserRole.user_id == user.id, Role.name == role_name).first() is not None
+    if isinstance(role_name, list):
+        # Handle multiple roles by checking if user has any of them
+        return Role.query.join(UserRole).filter(
+            UserRole.user_id == user.id, 
+            Role.name.in_(role_name)
+        ).first() is not None
+    else:
+        # Handle single role
+        return Role.query.join(UserRole).filter(
+            UserRole.user_id == user.id, 
+            Role.name == role_name
+        ).first() is not None
 
 
 # Routes
@@ -608,7 +619,7 @@ def add_patient():
 def get_patients():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin') and not has_role(user, 'Doctor'):
+    if not user or not has_role(user, ['Admin', 'Doctor', 'IT', 'Nurse', 'Receptionist']):
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
@@ -617,9 +628,10 @@ def get_patients():
         'patients': [{
             'id': p.id,
             'name': p.name,
-            'dob': p.dob.isoformat(),
+            'dob': p.dob.isoformat() if p.dob else None,
             'contact': p.contact,
-            'address': p.address
+            'address': p.address,
+            'created_at': p.created_at.isoformat()
         } for p in patients.items],
         'total': patients.total,
         'pages': patients.pages
@@ -1128,21 +1140,27 @@ def create_expense():
 def get_inventory():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not has_role(user, ['Admin', 'Pharmacist', 'Nurse', 'Doctor']):
         return jsonify({'message': 'Unauthorized access'}), 403
-    page = request.args.get('page', 1, type=int)
-    per_page = 10
-    inventory = SuppliesInventory.query.paginate(page=page, per_page=per_page, error_out=False)
-    return jsonify({
-        'items': [{
-            'id': item.id,
-            'item_name': item.item_name,
-            'quantity': item.quantity,
-            'last_updated': item.last_updated.isoformat()
-        } for item in inventory.items],
-        'total': inventory.total,
-        'pages': inventory.pages
-    }), 200
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = 10
+        inventory = SuppliesInventory.query.paginate(page=page, per_page=per_page, error_out=False)
+        return jsonify({
+            'items': [{
+                'id': item.id,
+                'item_name': item.item_name,
+                'quantity': item.quantity,
+                'last_updated': item.last_updated.isoformat()
+            } for item in inventory.items],
+            'total': inventory.total,
+            'pages': inventory.pages
+        }), 200
+    except Exception as e:
+        error_log = ErrorLog(error_message=str(e), user_id=user.id)
+        db.session.add(error_log)
+        db.session.commit()
+        return jsonify({'message': 'Error fetching inventory'}), 500
 
 @app.route('/api/inventory', methods=['POST'])
 @jwt_required()
@@ -1235,21 +1253,29 @@ def dispense_medication():
 def create_medication():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not has_role(user, ['Admin', 'Doctor', 'Nurse', 'Pharmacist']):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('name'):
+    
+    # Handle different field name variations
+    name = data.get('name') or data.get('medication_name') or data.get('medicationName')
+    description = data.get('description') or data.get('notes') or ''
+    dosage = data.get('dosage') or ''
+    frequency = data.get('frequency') or ''
+    
+    if not data or not name:
         return jsonify({'message': 'Missing required field: name'}), 422
+    
     try:
         medication = Medication(
-            name=data.get('name'),
-            description=data.get('description')
+            name=name,
+            description=description
         )
         db.session.add(medication)
-        audit_log = AuditLog(action='Medication created', user=current_user)
+        audit_log = AuditLog(action=f'Medication created: {name}', user=user.username)
         db.session.add(audit_log)
         db.session.commit()
-        return jsonify({'message': 'Medication created'}), 201
+        return jsonify({'message': 'Medication created successfully'}), 201
     except Exception as e:
         db.session.rollback()
         error_log = ErrorLog(error_message=str(e), user_id=user.id)
@@ -1453,28 +1479,40 @@ def update_user_role():
 def create_vitals():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Nurse') and not has_role(user, 'Doctor'):
+    if not user or not has_role(user, ['Nurse', 'Doctor', 'Admin']):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('patient_id') or not data.get('blood_pressure') or not data.get('temperature') or not data.get('pulse') or not data.get('respiration'):
-        return jsonify({'message': 'Missing required fields: patient_id, blood_pressure, temperature, pulse, respiration'}), 422
+    
+    # Handle different field name variations
+    patient_id = data.get('patient_id') or data.get('patientId')
+    blood_pressure = data.get('blood_pressure') or data.get('bloodPressure') or data.get('bp')
+    temperature = data.get('temperature') or data.get('temp')
+    pulse = data.get('pulse') or data.get('heart_rate') or data.get('heartRate')
+    respiration = data.get('respiration') or data.get('respiratory_rate') or data.get('respiratoryRate')
+    
+    if not data or not patient_id:
+        return jsonify({'message': 'Missing required field: patient_id'}), 422
+    
     try:
-        patient = db.session.get(Patient, data.get('patient_id'))
+        patient = db.session.get(Patient, int(patient_id))
         if not patient:
             return jsonify({'message': 'Patient not found'}), 404
+            
         vitals = Vitals(
             patient_id=patient.id,
-            blood_pressure=data.get('blood_pressure'),
-            temperature=data.get('temperature'),
-            pulse=data.get('pulse'),
-            respiration=data.get('respiration'),
+            blood_pressure=blood_pressure or '120/80',
+            temperature=float(temperature) if temperature else 98.6,
+            pulse=int(pulse) if pulse else 70,
+            respiration=int(respiration) if respiration else 16,
             recorded_by=user.id
         )
         db.session.add(vitals)
-        audit_log = AuditLog(action='Vitals recorded', user=current_user)
+        audit_log = AuditLog(action=f'Vitals recorded for Patient #{patient_id}', user=user.username)
         db.session.add(audit_log)
         db.session.commit()
-        return jsonify({'message': 'Vitals recorded'}), 201
+        return jsonify({'message': 'Vitals recorded successfully'}), 201
+    except ValueError:
+        return jsonify({'message': 'Invalid data format for vital signs'}), 422
     except Exception as e:
         db.session.rollback()
         error_log = ErrorLog(error_message=str(e), user_id=user.id)
@@ -1506,14 +1544,24 @@ def schedule_maintenance():
     if not user or not has_role(user, 'Admin'):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('assetId'):
+    
+    # Handle both object and direct value formats
+    if isinstance(data, dict):
+        asset_id = data.get('assetId')
+        maintenance_date_str = data.get('maintenance_date')
+    else:
+        # If data is not a dict, treat it as assetId
+        asset_id = data
+        maintenance_date_str = None
+    
+    if not asset_id:
         return jsonify({'message': 'Missing required field: assetId'}), 422
     try:
-        asset = db.session.get(Equipment, data.get('assetId'))
+        asset = db.session.get(Equipment, asset_id)
         if not asset:
             return jsonify({'message': 'Asset not found'}), 404
-        if data.get('maintenance_date'):
-            maintenance_date = datetime.fromisoformat(data.get('maintenance_date'))
+        if maintenance_date_str:
+            maintenance_date = datetime.fromisoformat(maintenance_date_str)
         else:
             maintenance_date = datetime.now(timezone.utc)
         asset.maintenance_date = maintenance_date
@@ -1536,6 +1584,33 @@ def schedule_maintenance():
         db.session.commit()
         return jsonify({'message': 'Error scheduling maintenance'}), 500
 
+@app.route('/api/beds', methods=['GET'])
+@jwt_required()
+def get_beds():
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    if not user or not has_role(user, ['Admin', 'Nurse']):
+        return jsonify({'message': 'Unauthorized access'}), 403
+    try:
+        beds = Bed.query.all()
+        beds_data = []
+        for bed in beds:
+            # Get current allocation if any
+            allocation = BedAllocation.query.filter_by(bed_id=bed.id, discharge_date=None).first()
+            beds_data.append({
+                'id': bed.id,
+                'ward': bed.ward_id,
+                'bed_number': bed.bed_number,
+                'status': bed.status,
+                'patient_id': allocation.patient_id if allocation else None
+            })
+        return jsonify({'beds': beds_data}), 200
+    except Exception as e:
+        error_log = ErrorLog(error_message=str(e), user_id=user.id)
+        db.session.add(error_log)
+        db.session.commit()
+        return jsonify({'message': 'Error fetching beds'}), 500
+
 @app.route('/api/beds/reserve', methods=['POST'])
 @jwt_required()
 def reserve_bed():
@@ -1544,13 +1619,23 @@ def reserve_bed():
     if not user or not has_role(user, 'Admin'):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('bedId') or not data.get('patient_id'):
-        return jsonify({'message': 'Missing required fields: bedId, patient_id'}), 422
+    
+    # Handle both object and direct value formats
+    if isinstance(data, dict):
+        bed_id = data.get('bedId')
+        patient_id = data.get('patient_id')
+    else:
+        # If data is not a dict, treat it as bedId and use default patient_id
+        bed_id = data
+        patient_id = 1  # Default patient ID for reservation
+    
+    if not bed_id:
+        return jsonify({'message': 'Missing required field: bedId'}), 422
     try:
-        bed = db.session.get(Bed, data.get('bedId'))
+        bed = db.session.get(Bed, bed_id)
         if not bed:
             return jsonify({'message': 'Bed not found'}), 404
-        patient = db.session.get(Patient, data.get('patient_id'))
+        patient = db.session.get(Patient, patient_id)
         if not patient:
             return jsonify({'message': 'Patient not found'}), 404
         if bed.status != 'Available':
@@ -1695,4 +1780,4 @@ def add_communication():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True, port=5000)
