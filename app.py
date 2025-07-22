@@ -441,7 +441,18 @@ class RadiologyOrder(db.Model):
 
 # Helper function to check user role
 def has_role(user, role_name):
-    return Role.query.join(UserRole).filter(UserRole.user_id == user.id, Role.name == role_name).first() is not None
+    if isinstance(role_name, list):
+        # Handle multiple roles by checking if user has any of them
+        return Role.query.join(UserRole).filter(
+            UserRole.user_id == user.id, 
+            Role.name.in_(role_name)
+        ).first() is not None
+    else:
+        # Handle single role
+        return Role.query.join(UserRole).filter(
+            UserRole.user_id == user.id, 
+            Role.name == role_name
+        ).first() is not None
 
 
 # Routes
