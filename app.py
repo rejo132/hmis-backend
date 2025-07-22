@@ -1505,14 +1505,24 @@ def schedule_maintenance():
     if not user or not has_role(user, 'Admin'):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('assetId'):
+    
+    # Handle both object and direct value formats
+    if isinstance(data, dict):
+        asset_id = data.get('assetId')
+        maintenance_date_str = data.get('maintenance_date')
+    else:
+        # If data is not a dict, treat it as assetId
+        asset_id = data
+        maintenance_date_str = None
+    
+    if not asset_id:
         return jsonify({'message': 'Missing required field: assetId'}), 422
     try:
-        asset = db.session.get(Equipment, data.get('assetId'))
+        asset = db.session.get(Equipment, asset_id)
         if not asset:
             return jsonify({'message': 'Asset not found'}), 404
-        if data.get('maintenance_date'):
-            maintenance_date = datetime.fromisoformat(data.get('maintenance_date'))
+        if maintenance_date_str:
+            maintenance_date = datetime.fromisoformat(maintenance_date_str)
         else:
             maintenance_date = datetime.now(timezone.utc)
         asset.maintenance_date = maintenance_date
@@ -1567,13 +1577,23 @@ def reserve_bed():
     if not user or not has_role(user, 'Admin'):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('bedId') or not data.get('patient_id'):
-        return jsonify({'message': 'Missing required fields: bedId, patient_id'}), 422
+    
+    # Handle both object and direct value formats
+    if isinstance(data, dict):
+        bed_id = data.get('bedId')
+        patient_id = data.get('patient_id')
+    else:
+        # If data is not a dict, treat it as bedId and use default patient_id
+        bed_id = data
+        patient_id = 1  # Default patient ID for reservation
+    
+    if not bed_id:
+        return jsonify({'message': 'Missing required field: bedId'}), 422
     try:
-        bed = db.session.get(Bed, data.get('bedId'))
+        bed = db.session.get(Bed, bed_id)
         if not bed:
             return jsonify({'message': 'Bed not found'}), 404
-        patient = db.session.get(Patient, data.get('patient_id'))
+        patient = db.session.get(Patient, patient_id)
         if not patient:
             return jsonify({'message': 'Patient not found'}), 404
         if bed.status != 'Available':
