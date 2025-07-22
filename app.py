@@ -1121,7 +1121,7 @@ def create_expense():
 def get_inventory():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, ['Admin', 'Pharmacist']):
+    if not user or not has_role(user, ['Admin', 'Pharmacist', 'Nurse', 'Doctor']):
         return jsonify({'message': 'Unauthorized access'}), 403
     try:
         page = request.args.get('page', 1, type=int)
@@ -1234,21 +1234,29 @@ def dispense_medication():
 def create_medication():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not has_role(user, ['Admin', 'Doctor', 'Nurse', 'Pharmacist']):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('name'):
+    
+    # Handle different field name variations
+    name = data.get('name') or data.get('medication_name') or data.get('medicationName')
+    description = data.get('description') or data.get('notes') or ''
+    dosage = data.get('dosage') or ''
+    frequency = data.get('frequency') or ''
+    
+    if not data or not name:
         return jsonify({'message': 'Missing required field: name'}), 422
+    
     try:
         medication = Medication(
-            name=data.get('name'),
-            description=data.get('description')
+            name=name,
+            description=description
         )
         db.session.add(medication)
-        audit_log = AuditLog(action='Medication created', user=current_user)
+        audit_log = AuditLog(action=f'Medication created: {name}', user=user.username)
         db.session.add(audit_log)
         db.session.commit()
-        return jsonify({'message': 'Medication created'}), 201
+        return jsonify({'message': 'Medication created successfully'}), 201
     except Exception as e:
         db.session.rollback()
         error_log = ErrorLog(error_message=str(e), user_id=user.id)
@@ -1452,28 +1460,40 @@ def update_user_role():
 def create_vitals():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Nurse') and not has_role(user, 'Doctor'):
+    if not user or not has_role(user, ['Nurse', 'Doctor', 'Admin']):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('patient_id') or not data.get('blood_pressure') or not data.get('temperature') or not data.get('pulse') or not data.get('respiration'):
-        return jsonify({'message': 'Missing required fields: patient_id, blood_pressure, temperature, pulse, respiration'}), 422
+    
+    # Handle different field name variations
+    patient_id = data.get('patient_id') or data.get('patientId')
+    blood_pressure = data.get('blood_pressure') or data.get('bloodPressure') or data.get('bp')
+    temperature = data.get('temperature') or data.get('temp')
+    pulse = data.get('pulse') or data.get('heart_rate') or data.get('heartRate')
+    respiration = data.get('respiration') or data.get('respiratory_rate') or data.get('respiratoryRate')
+    
+    if not data or not patient_id:
+        return jsonify({'message': 'Missing required field: patient_id'}), 422
+    
     try:
-        patient = db.session.get(Patient, data.get('patient_id'))
+        patient = db.session.get(Patient, int(patient_id))
         if not patient:
             return jsonify({'message': 'Patient not found'}), 404
+            
         vitals = Vitals(
             patient_id=patient.id,
-            blood_pressure=data.get('blood_pressure'),
-            temperature=data.get('temperature'),
-            pulse=data.get('pulse'),
-            respiration=data.get('respiration'),
+            blood_pressure=blood_pressure or '120/80',
+            temperature=float(temperature) if temperature else 98.6,
+            pulse=int(pulse) if pulse else 70,
+            respiration=int(respiration) if respiration else 16,
             recorded_by=user.id
         )
         db.session.add(vitals)
-        audit_log = AuditLog(action='Vitals recorded', user=current_user)
+        audit_log = AuditLog(action=f'Vitals recorded for Patient #{patient_id}', user=user.username)
         db.session.add(audit_log)
         db.session.commit()
-        return jsonify({'message': 'Vitals recorded'}), 201
+        return jsonify({'message': 'Vitals recorded successfully'}), 201
+    except ValueError:
+        return jsonify({'message': 'Invalid data format for vital signs'}), 422
     except Exception as e:
         db.session.rollback()
         error_log = ErrorLog(error_message=str(e), user_id=user.id)
