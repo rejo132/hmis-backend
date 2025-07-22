@@ -287,7 +287,7 @@ class PatientLogin(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
     username = db.Column(db.String(50), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
+    password = db.Column(db.String(255), nullable=False)
 
 class PatientFeedback(db.Model):
     __tablename__ = 'patient_feedback'
@@ -448,6 +448,24 @@ def has_role(user, role_name):
 @app.route('/')
 def index():
     return jsonify({'message': 'Welcome to HMIS API'}), 200
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring"""
+    try:
+        # Test database connection
+        user_count = User.query.count()
+        return jsonify({
+            'status': 'healthy',
+            'database': 'connected',
+            'users': user_count,
+            'version': '1.0.0'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500
 
 @app.route('/favicon.ico')
 def favicon():
@@ -1677,4 +1695,4 @@ def add_communication():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', port=5000)
