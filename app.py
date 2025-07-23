@@ -20,30 +20,30 @@ logger = logging.getLogger(__name__)
 
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
 
-# Models
+     # Models
 class User(db.Model):
-    __tablename__ = 'user'
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)  # Renamed from password_hash
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    email = db.Column(db.String(120), nullable=True)  # Added for /api/login
-    roles = db.relationship('Role', secondary='user_role', backref=db.backref('users', lazy='dynamic'))
+         __tablename__ = 'user'
+         id = db.Column(db.Integer, primary_key=True)
+         username = db.Column(db.String(50), unique=True, nullable=False)
+         password = db.Column(db.String(255), nullable=False)  # Renamed from password_hash
+         created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+         email = db.Column(db.String(120), nullable=True)  # Added for /api/login
+         roles = db.relationship('Role', secondary='user_role', backref=db.backref('users', lazy='dynamic'))
 
-    @property
-    def role(self):
-        return self.roles[0].name if self.roles else None
+         @property
+         def role(self):
+             return self.roles[0].name if self.roles else None
 
 class Role(db.Model):
-    __tablename__ = 'role'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)
+         __tablename__ = 'role'
+         id = db.Column(db.Integer, primary_key=True)
+         name = db.Column(db.String(50), unique=True, nullable=False)
 
 class UserRole(db.Model):
-    __tablename__ = 'user_role'
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=False)
+         __tablename__ = 'user_role'
+         id = db.Column(db.Integer, primary_key=True)
+         user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+         role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=False)
 
 class LoginActivity(db.Model):
     __tablename__ = 'login_activity'
