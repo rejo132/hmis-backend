@@ -18,7 +18,7 @@ jwt = JWTManager(app)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}})
+CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"], methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
      # Models
 class User(db.Model):
