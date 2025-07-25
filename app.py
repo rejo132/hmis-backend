@@ -905,6 +905,10 @@ def get_bills():
     user = User.query.get(current_user)
     if not user:
         return jsonify({'message': 'Unauthorized access'}), 403
+    page = request.args.get('page', 1, type=int)
+    per_page = 10
+    page = request.args.get('page', 1, type=int)
+    per_page = 10
     # Admin, Billing/Accountant: all bills
     if has_role(user, 'Admin') or has_role(user, 'Billing') or has_role(user, 'Accountant'):
         bills = Bill.query.order_by(Bill.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
