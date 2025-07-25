@@ -1862,6 +1862,45 @@ def add_communication():
         db.session.commit()
         return jsonify({'message': 'Error sending communication'}), 500
 
+queue = []  # In-memory queue for demonstration
+
+@app.route('/api/queue', methods=['GET'])
+@jwt_required()
+def get_queue():
+    return jsonify({'queue': queue}), 200
+
+@app.route('/api/queue', methods=['POST'])
+@jwt_required()
+def add_to_queue():
+    data = request.get_json()
+    patient_id = data.get('patient_id')
+    name = data.get('name')
+    if not patient_id or not name:
+        return jsonify({'message': 'Missing patient_id or name'}), 422
+    queue.append({'id': patient_id, 'name': name})
+    return jsonify({'message': 'Added to queue'}), 201
+
+@app.route('/api/checkin', methods=['POST'])
+@jwt_required()
+def check_in():
+    data = request.get_json()
+    patient_id = data.get('patient_id')
+    for patient in queue:
+        if patient['id'] == patient_id:
+            patient['checked_in'] = True
+            return jsonify({'message': 'Checked in'}), 200
+    return jsonify({'message': 'Patient not found in queue'}), 404
+
+@app.route('/api/checkout', methods=['POST'])
+@jwt_required()
+def check_out():
+    data = request.get_json()
+    patient_id = data.get('patient_id')
+    for patient in queue:
+        if patient['id'] == patient_id:
+            patient['checked_in'] = False
+            return jsonify({'message': 'Checked out'}), 200
+    return jsonify({'message': 'Patient not found in queue'}), 404
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
