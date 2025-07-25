@@ -628,7 +628,15 @@ def get_patients():
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
-    patients = Patient.query.order_by(Patient.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    q = request.args.get('q', '').strip()
+    query = Patient.query
+    if q:
+        query = query.filter(
+            (Patient.name.ilike(f'%{q}%')) |
+            (Patient.contact.ilike(f'%{q}%')) |
+            (Patient.id == q if q.isdigit() else False)
+        )
+    patients = query.order_by(Patient.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     return jsonify({
         'patients': [{
             'id': p.id,
