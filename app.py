@@ -579,7 +579,7 @@ def get_security_logs():
 def add_patient():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Receptionist')):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
     if not data or not data.get('name') or not data.get('dob'):
@@ -697,7 +697,7 @@ def update_patient(id):
 def schedule_appointment():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Receptionist')):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
     if not data or not data.get('patient_id') or not data.get('doctor_id') or not data.get('appointment_time'):
@@ -1746,7 +1746,7 @@ def reserve_bed():
 def process_refund():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Billing')):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
     if not data or not data.get('billId'):
