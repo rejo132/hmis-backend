@@ -792,7 +792,9 @@ def add_record():
 def get_records():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or (not has_role(user, 'Admin') and not has_role(user, 'Doctor') and not has_role(user, 'Nurse')):
+    if not user or not (
+        has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Lab Tech') or has_role(user, 'Pharmacist') or has_role(user, 'Receptionist') or has_role(user, 'Billing')
+    ):
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
@@ -870,7 +872,9 @@ def update_bill(id):
 def get_bills():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not (
+        has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Lab Tech') or has_role(user, 'Pharmacist') or has_role(user, 'Receptionist') or has_role(user, 'Billing')
+    ):
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
