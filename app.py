@@ -624,7 +624,7 @@ def add_patient():
 def get_patients():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, ['Admin', 'Doctor', 'IT', 'Nurse', 'Receptionist']):
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Receptionist')):
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
@@ -740,7 +740,7 @@ def schedule_appointment():
 def get_appointments():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin') and not has_role(user, 'Doctor'):
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Receptionist')):
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
@@ -792,18 +792,49 @@ def add_record():
 def get_records():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not (
-        has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Lab Tech') or has_role(user, 'Pharmacist') or has_role(user, 'Receptionist') or has_role(user, 'Billing')
-    ):
+    if not user:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    # Admin: all records
+    if has_role(user, 'Admin'):
+        query = MedicalRecord.query
+    # Doctor: only assigned patients
+    elif has_role(user, 'Doctor'):
+        query = MedicalRecord.query.filter_by(doctor_id=user.id)
+    # Nurse: only vitals, medication, shift, patient status (simulate by filtering fields in to_dict)
+    elif has_role(user, 'Nurse'):
+        query = MedicalRecord.query
+    # Lab Tech: only lab requests/results (simulate by filtering fields in to_dict)
+    elif has_role(user, 'Lab Tech'):
+        query = MedicalRecord.query
+    # Receptionist: only appointment/registration/check-in/out, limited demographics (simulate by filtering fields in to_dict)
+    elif has_role(user, 'Receptionist'):
+        query = MedicalRecord.query
+    # Billing/Accountant: no access
+    elif has_role(user, 'Billing') or has_role(user, 'Accountant'):
+        return jsonify({'message': 'Unauthorized access'}), 403
+    # Pharmacist: no access
+    elif has_role(user, 'Pharmacist'):
+        return jsonify({'message': 'Unauthorized access'}), 403
+    else:
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
-    query = MedicalRecord.query
-    if has_role(user, 'Doctor') or has_role(user, 'Nurse'):
-        query = query.filter_by(doctor_id=user.id)
     records = query.order_by(MedicalRecord.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    # Filter fields based on role
+    def filter_record(record):
+        data = record.to_dict()
+        if has_role(user, 'Nurse'):
+            allowed = ['id', 'patient_id', 'vital_signs', 'created_at']
+            return {k: v for k, v in data.items() if k in allowed}
+        if has_role(user, 'Lab Tech'):
+            allowed = ['id', 'patient_id', 'created_at', 'diagnosis', 'prescription'] # Simulate lab fields
+            return {k: v for k, v in data.items() if k in allowed}
+        if has_role(user, 'Receptionist'):
+            allowed = ['id', 'patient_id', 'created_at'] # Simulate demographics
+            return {k: v for k, v in data.items() if k in allowed}
+        return data
     return jsonify({
-        'records': [r.to_dict() for r in records.items],
+        'records': [filter_record(r) for r in records.items],
         'total': records.total,
         'pages': records.pages,
         'page': page
@@ -872,13 +903,14 @@ def update_bill(id):
 def get_bills():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not (
-        has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Lab Tech') or has_role(user, 'Pharmacist') or has_role(user, 'Receptionist') or has_role(user, 'Billing')
-    ):
+    if not user:
         return jsonify({'message': 'Unauthorized access'}), 403
-    page = request.args.get('page', 1, type=int)
-    per_page = 10
-    bills = Bill.query.order_by(Bill.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    # Admin, Billing/Accountant: all bills
+    if has_role(user, 'Admin') or has_role(user, 'Billing') or has_role(user, 'Accountant'):
+        bills = Bill.query.order_by(Bill.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    # Doctor, Nurse, Lab Tech, Pharmacist, Receptionist: no access
+    else:
+        return jsonify({'message': 'Unauthorized access'}), 403
     return jsonify({
         'bills': [b.to_dict() for b in bills.items],
         'total': bills.total,
@@ -891,7 +923,7 @@ def get_bills():
 def create_lab_order():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Doctor') and not has_role(user, 'Lab Tech'):
+    if not user or not (has_role(user, 'Doctor') or has_role(user, 'Lab Tech')):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
     if not data or not data.get('patient_id') or not data.get('test_type'):
@@ -1167,7 +1199,7 @@ def create_expense():
 def get_inventory():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, ['Admin', 'Pharmacist', 'Nurse', 'Doctor']):
+    if not user or not has_role(user, ['Admin', 'Pharmacist']):
         return jsonify({'message': 'Unauthorized access'}), 403
     try:
         page = request.args.get('page', 1, type=int)
@@ -1250,7 +1282,7 @@ def update_inventory(id):
 def dispense_medication():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin') and not has_role(user, 'Doctor'):
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Pharmacist')):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
     if not data or not data.get('item_id') or not data.get('quantity'):
