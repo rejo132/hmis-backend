@@ -2215,20 +2215,24 @@ def get_patient_visits():
     user = User.query.get(current_user)
     if not user:
         return jsonify({'message': 'Unauthorized access'}), 403
-    role_stage_map = {
-        'Receptionist': 'reception',
-        'Nurse': 'triage',
-        'Doctor': 'doctor',
-        'Lab Tech': 'lab',
-        'Pharmacist': 'pharmacy',
-        'Billing': 'billing',
-    }
-    # Find the user's role
     role = user.role
-    stage = role_stage_map.get(role)
-    if not stage:
-        return jsonify({'message': 'No workflow stage for this role'}), 403
-    visits = PatientVisit.query.filter_by(current_stage=stage).order_by(PatientVisit.created_at.desc()).all()
+    
+    # Receptionist can see all visits, others see only their stage
+    if role == 'Receptionist':
+        visits = PatientVisit.query.order_by(PatientVisit.created_at.desc()).all()
+    else:
+        role_stage_map = {
+            'Nurse': 'triage',
+            'Doctor': 'doctor',
+            'Lab Tech': 'lab',
+            'Pharmacist': 'pharmacy',
+            'Billing': 'billing',
+        }
+        stage = role_stage_map.get(role)
+        if not stage:
+            return jsonify({'message': 'No workflow stage for this role'}), 403
+        visits = PatientVisit.query.filter_by(current_stage=stage).order_by(PatientVisit.created_at.desc()).all()
+    
     return jsonify({'visits': [v.to_dict() for v in visits]}), 200
 
 @app.route('/api/patient-visits/<int:visit_id>', methods=['GET'])
