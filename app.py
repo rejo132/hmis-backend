@@ -2162,5 +2162,123 @@ def update_bill_status(id):
         db.session.commit()
         return jsonify({'message': 'Error updating bill status'}), 500
 
+class PatientVisit(db.Model):
+    __tablename__ = 'patient_visit'
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
+    current_stage = db.Column(db.String(20), nullable=False, default='reception')
+    triage_notes = db.Column(db.Text)
+    lab_results = db.Column(db.Text)
+    diagnosis = db.Column(db.Text)
+    prescription = db.Column(db.Text)
+    billing_status = db.Column(db.String(20), default='unpaid')
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'patient_id': self.patient_id,
+            'current_stage': self.current_stage,
+            'triage_notes': self.triage_notes,
+            'lab_results': self.lab_results,
+            'diagnosis': self.diagnosis,
+            'prescription': self.prescription,
+            'billing_status': self.billing_status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+@app.route('/api/patient-visits', methods=['POST'])
+@jwt_required()
+def create_patient_visit():
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    if not user or not has_role(user, 'Receptionist'):
+        return jsonify({'message': 'Unauthorized access'}), 403
+    data = request.get_json()
+    patient_id = data.get('patient_id')
+    if not patient_id:
+        return jsonify({'message': 'Missing patient_id'}), 422
+    visit = PatientVisit(patient_id=patient_id, current_stage='triage')
+    db.session.add(visit)
+    db.session.commit()
+    audit_log = AuditLog(action='PatientVisit created', user=user.username)
+    db.session.add(audit_log)
+    db.session.commit()
+    return jsonify(visit.to_dict()), 201
+
+@app.route('/api/patient-visits', methods=['GET'])
+@jwt_required()
+def get_patient_visits():
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    if not user:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    role_stage_map = {
+        'Receptionist': 'reception',
+        'Nurse': 'triage',
+        'Doctor': 'doctor',
+        'Lab Tech': 'lab',
+        'Pharmacist': 'pharmacy',
+        'Billing': 'billing',
+    }
+    # Find the user's role
+    role = user.role
+    stage = role_stage_map.get(role)
+    if not stage:
+        return jsonify({'message': 'No workflow stage for this role'}), 403
+    visits = PatientVisit.query.filter_by(current_stage=stage).order_by(PatientVisit.created_at.desc()).all()
+    return jsonify({'visits': [v.to_dict() for v in visits]}), 200
+
+@app.route('/api/patient-visits/<int:visit_id>', methods=['GET'])
+@jwt_required()
+def get_patient_visit(visit_id):
+    visit = PatientVisit.query.get(visit_id)
+    if not visit:
+        return jsonify({'message': 'Visit not found'}), 404
+    return jsonify(visit.to_dict()), 200
+
+@app.route('/api/patient-visits/<int:visit_id>', methods=['PUT'])
+@jwt_required()
+def update_patient_visit(visit_id):
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    visit = PatientVisit.query.get(visit_id)
+    if not user or not visit:
+        return jsonify({'message': 'Unauthorized or not found'}), 403
+    data = request.get_json()
+    role = user.role
+    # Receptionist cannot update after creation
+    if role == 'Nurse' and visit.current_stage == 'triage':
+        visit.triage_notes = data.get('triage_notes', visit.triage_notes)
+        visit.current_stage = 'doctor'
+    elif role == 'Doctor' and visit.current_stage == 'doctor':
+        visit.diagnosis = data.get('diagnosis', visit.diagnosis)
+        visit.prescription = data.get('prescription', visit.prescription)
+        # If requesting lab, move to lab, else to pharmacy
+        if data.get('lab_results'):
+            visit.lab_results = data.get('lab_results')
+            visit.current_stage = 'pharmacy'
+        elif data.get('request_lab'):
+            visit.current_stage = 'lab'
+        else:
+            visit.current_stage = 'pharmacy'
+    elif role == 'Lab Tech' and visit.current_stage == 'lab':
+        visit.lab_results = data.get('lab_results', visit.lab_results)
+        visit.current_stage = 'doctor'
+    elif role == 'Pharmacist' and visit.current_stage == 'pharmacy':
+        visit.current_stage = 'billing'
+    elif role == 'Billing' and visit.current_stage == 'billing':
+        visit.billing_status = data.get('billing_status', visit.billing_status)
+    else:
+        return jsonify({'message': 'Invalid stage update for this role'}), 403
+    visit.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    audit_log = AuditLog(action=f'PatientVisit updated by {role}', user=user.username)
+    db.session.add(audit_log)
+    db.session.commit()
+    return jsonify(visit.to_dict()), 200
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
