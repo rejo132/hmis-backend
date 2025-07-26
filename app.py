@@ -619,7 +619,7 @@ def add_patient():
         audit_log = AuditLog(action='Patient added', user=current_user)
         db.session.add(audit_log)
         db.session.commit()
-        return jsonify({'message': 'Patient added'}), 201
+        return jsonify({'message': 'Patient added', 'id': patient.id}), 201
     except ValueError as ve:
         db.session.rollback()
         error_log = ErrorLog(error_message=f'Invalid date format: {str(ve)}', user_id=user.id)
