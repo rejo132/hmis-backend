@@ -2186,7 +2186,36 @@ class PatientVisit(db.Model):
             'prescription': self.prescription,
             'billing_status': self.billing_status,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+class Invoice(db.Model):
+    __tablename__ = 'invoice'
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_number = db.Column(db.String(50), unique=True, nullable=False)
+    patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
+    visit_id = db.Column(db.Integer, db.ForeignKey('patient_visit.id'), nullable=False)
+    total_amount = db.Column(db.Numeric(10, 2), nullable=False)
+    services = db.Column(db.JSON)
+    status = db.Column(db.String(20), default='Pending')
+    generated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    generated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    paid_at = db.Column(db.DateTime)
+    payment_method = db.Column(db.String(20))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'invoice_number': self.invoice_number,
+            'patient_id': self.patient_id,
+            'visit_id': self.visit_id,
+            'total_amount': float(self.total_amount) if self.total_amount else 0,
+            'services': self.services,
+            'status': self.status,
+            'generated_by': self.generated_by,
+            'generated_at': self.generated_at.isoformat() if self.generated_at else None,
+            'paid_at': self.paid_at.isoformat() if self.paid_at else None,
+            'payment_method': self.payment_method,
         }
 
 @app.route('/api/patient-visits', methods=['POST'])
@@ -2336,6 +2365,140 @@ def update_patient_visit(visit_id):
         logger.error(f"Error updating visit {visit_id}: {str(e)}")
         db.session.rollback()
         return jsonify({'message': f'Error updating visit: {str(e)}'}), 500
+
+@app.route('/api/invoices', methods=['POST'])
+@jwt_required()
+def create_invoice():
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    logger.info(f"Invoice creation request from user {current_user} with role {user.role if user else 'None'}")
+    
+    if not user or not (has_role(user, 'Billing') or has_role(user, 'Admin')):
+        logger.warning(f"Unauthorized access attempt by user {current_user}")
+        return jsonify({'message': 'Unauthorized access'}), 403
+    
+    data = request.get_json()
+    patient_id = data.get('patient_id')
+    visit_id = data.get('visit_id')
+    total_amount = data.get('total_amount')
+    services = data.get('services', [])
+    
+    logger.info(f"Creating invoice for patient_id: {patient_id}, visit_id: {visit_id}")
+    
+    if not patient_id or not visit_id or not total_amount:
+        logger.error("Missing required fields in request")
+        return jsonify({'message': 'Missing required fields'}), 422
+    
+    try:
+        # Generate unique invoice number
+        invoice_number = f"INV-{visit_id}-{int(datetime.now(timezone.utc).timestamp())}"
+        
+        invoice = Invoice(
+            invoice_number=invoice_number,
+            patient_id=patient_id,
+            visit_id=visit_id,
+            total_amount=total_amount,
+            services=services,
+            generated_by=current_user
+        )
+        db.session.add(invoice)
+        db.session.commit()
+        logger.info(f"Invoice {invoice.id} created successfully")
+        
+        audit_log = AuditLog(action='Invoice created', user=user.username)
+        db.session.add(audit_log)
+        db.session.commit()
+        
+        return jsonify(invoice.to_dict()), 201
+    except Exception as e:
+        logger.error(f"Error creating invoice: {str(e)}")
+        db.session.rollback()
+        return jsonify({'message': f'Error creating invoice: {str(e)}'}), 500
+
+@app.route('/api/invoices', methods=['GET'])
+@jwt_required()
+def get_invoices():
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    if not user:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    
+    try:
+        page = request.args.get('page', 1, type=int)
+        per_page = 10
+        patient_id = request.args.get('patient_id', type=int)
+        
+        query = Invoice.query
+        if patient_id:
+            query = query.filter_by(patient_id=patient_id)
+        
+        invoices = query.order_by(Invoice.generated_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        return jsonify({
+            'invoices': [invoice.to_dict() for invoice in invoices.items],
+            'total': invoices.total,
+            'pages': invoices.pages,
+            'page': page
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching invoices: {str(e)}")
+        return jsonify({'message': f'Error fetching invoices: {str(e)}'}), 500
+
+@app.route('/api/invoices/<int:invoice_id>', methods=['GET'])
+@jwt_required()
+def get_invoice(invoice_id):
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    if not user:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    
+    try:
+        invoice = Invoice.query.get(invoice_id)
+        if not invoice:
+            return jsonify({'message': 'Invoice not found'}), 404
+        
+        return jsonify(invoice.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error fetching invoice {invoice_id}: {str(e)}")
+        return jsonify({'message': f'Error fetching invoice: {str(e)}'}), 500
+
+@app.route('/api/invoices/<int:invoice_id>/pay', methods=['PUT'])
+@jwt_required()
+def pay_invoice(invoice_id):
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    logger.info(f"Invoice payment request from user {current_user} for invoice {invoice_id}")
+    
+    if not user or not (has_role(user, 'Billing') or has_role(user, 'Admin')):
+        logger.warning(f"Unauthorized access attempt by user {current_user}")
+        return jsonify({'message': 'Unauthorized access'}), 403
+    
+    data = request.get_json()
+    payment_method = data.get('payment_method', 'Unknown')
+    
+    try:
+        invoice = Invoice.query.get(invoice_id)
+        if not invoice:
+            return jsonify({'message': 'Invoice not found'}), 404
+        
+        invoice.status = 'Paid'
+        invoice.paid_at = datetime.now(timezone.utc)
+        invoice.payment_method = payment_method
+        
+        db.session.commit()
+        logger.info(f"Invoice {invoice_id} marked as paid")
+        
+        audit_log = AuditLog(action=f'Invoice {invoice_id} paid via {payment_method}', user=user.username)
+        db.session.add(audit_log)
+        db.session.commit()
+        
+        return jsonify(invoice.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error paying invoice {invoice_id}: {str(e)}")
+        db.session.rollback()
+        return jsonify({'message': f'Error paying invoice: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
