@@ -752,18 +752,26 @@ def schedule_appointment():
 def get_appointments():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not (has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Receptionist')):
+    if not user:
         return jsonify({'message': 'Unauthorized access'}), 403
-    page = request.args.get('page', 1, type=int)
-    per_page = 10
+    # Allow Admin, Doctor, Nurse, Receptionist full access
+    if has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Receptionist'):
+        allowed_fields = ['id', 'patient', 'date', 'doctor_id', 'reason', 'status', 'created_by', 'created_at']
+    # Allow Billing and Accountant limited access
+    elif has_role(user, 'Billing') or has_role(user, 'Accountant'):
+        allowed_fields = ['id', 'patient', 'date', 'doctor_id', 'status', 'created_at']
+    else:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    patient_id = request.args.get('patient_id', type=int)
     query = Appointment.query
-    if has_role(user, 'Doctor'):
-        query = query.filter_by(doctor_id=user.id)
-    appointments = query.order_by(Appointment.date.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    if patient_id:
+        query = query.filter_by(patient=patient_id)
+    appointments = query.order_by(Appointment.date.desc()).all()
     return jsonify({
-        'appointments': [a.to_dict() for a in appointments.items],
-        'total': appointments.total,
-        'pages': appointments.pages
+        'appointments': [
+            {k: getattr(a, k) if k not in ['date', 'created_at'] else (getattr(a, k).isoformat() if getattr(a, k) else None) for k in allowed_fields}
+            for a in appointments
+        ]
     }), 200
 
 @app.route('/api/records', methods=['POST'])
@@ -806,43 +814,43 @@ def get_records():
     user = User.query.get(current_user)
     if not user:
         return jsonify({'message': 'Unauthorized access'}), 403
-    # Admin: all records
-    if has_role(user, 'Admin'):
-        query = MedicalRecord.query
-    # Doctor: only assigned patients
-    elif has_role(user, 'Doctor'):
-        query = MedicalRecord.query.filter_by(doctor_id=user.id)
-    # Nurse: only vitals, medication, shift, patient status (simulate by filtering fields in to_dict)
-    elif has_role(user, 'Nurse'):
-        query = MedicalRecord.query
-    # Lab Tech: only lab requests/results (simulate by filtering fields in to_dict)
-    elif has_role(user, 'Lab Tech'):
-        query = MedicalRecord.query
-    # Receptionist: only appointment/registration/check-in/out, limited demographics (simulate by filtering fields in to_dict)
-    elif has_role(user, 'Receptionist'):
-        query = MedicalRecord.query
-    # Pharmacist: only prescription-related fields
-    elif has_role(user, 'Pharmacist'):
-        query = MedicalRecord.query
-    # Billing/Accountant: no access
+    # Allow Admin, Doctor, Nurse, Lab Tech, Receptionist, Pharmacist full access/filtered
+    if has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Lab Tech') or has_role(user, 'Receptionist') or has_role(user, 'Pharmacist'):
+        pass  # Use existing logic below
+    # Allow Billing and Accountant limited access
     elif has_role(user, 'Billing') or has_role(user, 'Accountant'):
-        return jsonify({'message': 'Unauthorized access'}), 403
+        allowed_fields = ['id', 'patient_id', 'diagnosis', 'prescription', 'created_at']
+        patient_id = request.args.get('patient_id', type=int)
+        query = MedicalRecord.query
+        if patient_id:
+            query = query.filter_by(patient_id=patient_id)
+        records = query.order_by(MedicalRecord.created_at.desc()).all()
+        return jsonify({
+            'records': [
+                {k: getattr(r, k) if k != 'created_at' else (getattr(r, k).isoformat() if getattr(r, k) else None) for k in allowed_fields}
+                for r in records
+            ]
+        }), 200
     else:
         return jsonify({'message': 'Unauthorized access'}), 403
+    # Existing logic for other roles
     page = request.args.get('page', 1, type=int)
     per_page = 10
+    patient_id = request.args.get('patient_id', type=int)
+    query = MedicalRecord.query
+    if patient_id:
+        query = query.filter_by(patient_id=patient_id)
     records = query.order_by(MedicalRecord.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    # Filter fields based on role
     def filter_record(record):
         data = record.to_dict()
         if has_role(user, 'Nurse'):
             allowed = ['id', 'patient_id', 'vital_signs', 'created_at']
             return {k: v for k, v in data.items() if k in allowed}
         if has_role(user, 'Lab Tech'):
-            allowed = ['id', 'patient_id', 'created_at', 'diagnosis', 'prescription'] # Simulate lab fields
+            allowed = ['id', 'patient_id', 'created_at', 'diagnosis', 'prescription']
             return {k: v for k, v in data.items() if k in allowed}
         if has_role(user, 'Receptionist'):
-            allowed = ['id', 'patient_id', 'created_at'] # Simulate demographics
+            allowed = ['id', 'patient_id', 'created_at']
             return {k: v for k, v in data.items() if k in allowed}
         if has_role(user, 'Pharmacist'):
             allowed = ['id', 'patient_id', 'prescription', 'diagnosis', 'created_at']
@@ -1948,6 +1956,33 @@ def check_out():
             patient['checked_in'] = False
             return jsonify({'message': 'Checked out'}), 200
     return jsonify({'message': 'Patient not found in queue'}), 404
+
+@app.route('/api/lab-orders', methods=['GET'])
+@jwt_required()
+def get_lab_orders():
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    if not user:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    # Allow Admin, Doctor, Nurse, Lab Tech full access
+    if has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Lab Tech'):
+        allowed_fields = ['id', 'patient_id', 'test_type', 'status', 'results', 'created_at']
+    # Allow Billing and Accountant limited access
+    elif has_role(user, 'Billing') or has_role(user, 'Accountant'):
+        allowed_fields = ['id', 'patient_id', 'test_type', 'status', 'created_at']
+    else:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    patient_id = request.args.get('patient_id', type=int)
+    query = LabOrder.query
+    if patient_id:
+        query = query.filter_by(patient_id=patient_id)
+    lab_orders = query.order_by(LabOrder.created_at.desc()).all()
+    return jsonify({
+        'lab_orders': [
+            {k: getattr(l, k) if k != 'created_at' else (getattr(l, k).isoformat() if getattr(l, k) else None) for k in allowed_fields}
+            for l in lab_orders
+        ]
+    }), 200
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
