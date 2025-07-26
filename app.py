@@ -1297,15 +1297,21 @@ def dispense_medication():
     if not user or not (has_role(user, 'Admin') or has_role(user, 'Pharmacist')):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
-    if not data or not data.get('item_id') or not data.get('quantity'):
+    
+    # Handle different field name variations
+    item_id = data.get('item_id') or data.get('itemId')
+    quantity = data.get('quantity')
+    patient_id = data.get('patient_id') or data.get('patientId')
+    
+    if not data or not item_id or not quantity:
         return jsonify({'message': 'Missing required fields: item_id, quantity'}), 422
     try:
-        item = db.session.get(SuppliesInventory, data.get('item_id'))
+        item = db.session.get(SuppliesInventory, item_id)
         if not item:
             return jsonify({'message': 'Inventory item not found'}), 404
-        if item.quantity < data.get('quantity'):
+        if item.quantity < quantity:
             return jsonify({'message': 'Insufficient quantity'}), 400
-        item.quantity -= data.get('quantity')
+        item.quantity -= quantity
         item.last_updated = datetime.now(timezone.utc)
         db.session.commit()
         audit_log = AuditLog(action='Medication dispensed', user=current_user)
