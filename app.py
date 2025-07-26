@@ -2194,19 +2194,35 @@ class PatientVisit(db.Model):
 def create_patient_visit():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
+    logger.info(f"PatientVisit creation request from user {current_user} with role {user.role if user else 'None'}")
+    
     if not user or not has_role(user, 'Receptionist'):
+        logger.warning(f"Unauthorized access attempt by user {current_user}")
         return jsonify({'message': 'Unauthorized access'}), 403
+    
     data = request.get_json()
     patient_id = data.get('patient_id')
+    logger.info(f"Creating PatientVisit for patient_id: {patient_id}")
+    
     if not patient_id:
+        logger.error("Missing patient_id in request")
         return jsonify({'message': 'Missing patient_id'}), 422
-    visit = PatientVisit(patient_id=patient_id, current_stage='triage')
-    db.session.add(visit)
-    db.session.commit()
-    audit_log = AuditLog(action='PatientVisit created', user=user.username)
-    db.session.add(audit_log)
-    db.session.commit()
-    return jsonify(visit.to_dict()), 201
+    
+    try:
+        visit = PatientVisit(patient_id=patient_id, current_stage='triage')
+        db.session.add(visit)
+        db.session.commit()
+        logger.info(f"PatientVisit {visit.id} created successfully for patient {patient_id}")
+        
+        audit_log = AuditLog(action='PatientVisit created', user=user.username)
+        db.session.add(audit_log)
+        db.session.commit()
+        
+        return jsonify(visit.to_dict()), 201
+    except Exception as e:
+        logger.error(f"Error creating PatientVisit: {str(e)}")
+        db.session.rollback()
+        return jsonify({'message': f'Error creating PatientVisit: {str(e)}'}), 500
 
 @app.route('/api/patient-visits', methods=['GET'])
 @jwt_required()
@@ -2217,9 +2233,12 @@ def get_patient_visits():
         return jsonify({'message': 'Unauthorized access'}), 403
     role = user.role
     
+    logger.info(f"PatientVisits request from user {current_user} with role {role}")
+    
     # Receptionist can see all visits, others see only their stage
     if role == 'Receptionist':
         visits = PatientVisit.query.order_by(PatientVisit.created_at.desc()).all()
+        logger.info(f"Receptionist sees all {len(visits)} visits")
     else:
         role_stage_map = {
             'Nurse': 'triage',
@@ -2230,8 +2249,12 @@ def get_patient_visits():
         }
         stage = role_stage_map.get(role)
         if not stage:
+            logger.warning(f"No workflow stage mapped for role {role}")
             return jsonify({'message': 'No workflow stage for this role'}), 403
+        
         visits = PatientVisit.query.filter_by(current_stage=stage).order_by(PatientVisit.created_at.desc()).all()
+        logger.info(f"User {current_user} (role: {role}) sees {len(visits)} visits in stage '{stage}'")
+        logger.info(f"Visit IDs in stage '{stage}': {[v.id for v in visits]}")
     
     return jsonify({'visits': [v.to_dict() for v in visits]}), 200
 
@@ -2249,40 +2272,70 @@ def update_patient_visit(visit_id):
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
     visit = PatientVisit.query.get(visit_id)
+    
+    logger.info(f"PatientVisit update request from user {current_user} (role: {user.role if user else 'None'}) for visit {visit_id}")
+    
     if not user or not visit:
+        logger.error(f"Unauthorized or visit not found: user={user}, visit={visit}")
         return jsonify({'message': 'Unauthorized or not found'}), 403
+    
     data = request.get_json()
     role = user.role
+    logger.info(f"Updating visit {visit_id} (current stage: {visit.current_stage}) with role {role}")
+    logger.info(f"Request data: {data}")
+    
     # Receptionist cannot update after creation
     if role == 'Nurse' and visit.current_stage == 'triage':
+        logger.info(f"Nurse updating triage notes for visit {visit_id}")
         visit.triage_notes = data.get('triage_notes', visit.triage_notes)
         visit.current_stage = 'doctor'
+        logger.info(f"Visit {visit_id} moved from triage to doctor stage")
     elif role == 'Doctor' and visit.current_stage == 'doctor':
+        logger.info(f"Doctor updating diagnosis/prescription for visit {visit_id}")
         visit.diagnosis = data.get('diagnosis', visit.diagnosis)
         visit.prescription = data.get('prescription', visit.prescription)
         # If requesting lab, move to lab, else to pharmacy
         if data.get('lab_results'):
             visit.lab_results = data.get('lab_results')
             visit.current_stage = 'pharmacy'
+            logger.info(f"Visit {visit_id} moved from doctor to pharmacy stage (with lab results)")
         elif data.get('request_lab'):
             visit.current_stage = 'lab'
+            logger.info(f"Visit {visit_id} moved from doctor to lab stage")
         else:
             visit.current_stage = 'pharmacy'
+            logger.info(f"Visit {visit_id} moved from doctor to pharmacy stage")
     elif role == 'Lab Tech' and visit.current_stage == 'lab':
+        logger.info(f"Lab Tech updating lab results for visit {visit_id}")
         visit.lab_results = data.get('lab_results', visit.lab_results)
         visit.current_stage = 'doctor'
+        logger.info(f"Visit {visit_id} moved from lab to doctor stage")
     elif role == 'Pharmacist' and visit.current_stage == 'pharmacy':
+        logger.info(f"Pharmacist completing medication for visit {visit_id}")
         visit.current_stage = 'billing'
+        logger.info(f"Visit {visit_id} moved from pharmacy to billing stage")
     elif role == 'Billing' and visit.current_stage == 'billing':
+        logger.info(f"Billing updating status for visit {visit_id}")
         visit.billing_status = data.get('billing_status', visit.billing_status)
+        logger.info(f"Visit {visit_id} billing status updated to {visit.billing_status}")
     else:
+        logger.warning(f"Invalid stage update: role={role}, current_stage={visit.current_stage}, visit_id={visit_id}")
         return jsonify({'message': 'Invalid stage update for this role'}), 403
+    
     visit.updated_at = datetime.now(timezone.utc)
-    db.session.commit()
-    audit_log = AuditLog(action=f'PatientVisit updated by {role}', user=user.username)
-    db.session.add(audit_log)
-    db.session.commit()
-    return jsonify(visit.to_dict()), 200
+    try:
+        db.session.commit()
+        logger.info(f"Successfully updated visit {visit_id} to stage {visit.current_stage}")
+        
+        audit_log = AuditLog(action=f'PatientVisit updated by {role}', user=user.username)
+        db.session.add(audit_log)
+        db.session.commit()
+        
+        return jsonify(visit.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error updating visit {visit_id}: {str(e)}")
+        db.session.rollback()
+        return jsonify({'message': f'Error updating visit: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
