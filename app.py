@@ -624,7 +624,15 @@ def add_patient():
 def get_patients():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not (has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Receptionist')):
+    if not user:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    # Allow Admin, Doctor, Nurse, Receptionist full access
+    if has_role(user, 'Admin') or has_role(user, 'Doctor') or has_role(user, 'Nurse') or has_role(user, 'Receptionist'):
+        allowed_fields = ['id', 'name', 'dob', 'contact', 'address', 'created_at']
+    # Allow Billing and Accountant limited access
+    elif has_role(user, 'Billing') or has_role(user, 'Accountant'):
+        allowed_fields = ['id', 'name', 'dob', 'contact', 'address', 'created_at']
+    else:
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
@@ -638,14 +646,10 @@ def get_patients():
         )
     patients = query.order_by(Patient.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     return jsonify({
-        'patients': [{
-            'id': p.id,
-            'name': p.name,
-            'dob': p.dob.isoformat() if p.dob else None,
-            'contact': p.contact,
-            'address': p.address,
-            'created_at': p.created_at.isoformat()
-        } for p in patients.items],
+        'patients': [
+            {k: getattr(p, k) if k != 'dob' and k != 'created_at' else (getattr(p, k).isoformat() if getattr(p, k) else None) for k in allowed_fields}
+            for p in patients.items
+        ],
         'total': patients.total,
         'pages': patients.pages
     }), 200
