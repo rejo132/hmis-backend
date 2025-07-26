@@ -508,6 +508,20 @@ def register():
             db.session.commit()
         user_role = UserRole(user_id=user.id, role_id=role_obj.id)
         db.session.add(user_role)
+        # If Patient, create Patient and PatientLogin
+        if role == 'Patient':
+            # Create Patient record
+            patient = Patient(name=username, dob=datetime.now().date())
+            db.session.add(patient)
+            db.session.commit()
+            # Create PatientLogin
+            patient_login = PatientLogin(
+                patient_id=patient.id,
+                username=username,
+                password=generate_password_hash(password)
+            )
+            db.session.add(patient_login)
+            db.session.commit()
         audit_log = AuditLog(action='User registered', user=username)
         db.session.add(audit_log)
         db.session.commit()
