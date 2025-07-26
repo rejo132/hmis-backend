@@ -760,6 +760,20 @@ def get_appointments():
     # Allow Billing and Accountant limited access
     elif has_role(user, 'Billing') or has_role(user, 'Accountant'):
         allowed_fields = ['id', 'patient', 'date', 'doctor_id', 'status', 'created_at']
+    # Patient: only their own appointments
+    elif has_role(user, 'Patient'):
+        allowed_fields = ['id', 'patient', 'date', 'doctor_id', 'reason', 'status', 'created_at']
+        patient_login = PatientLogin.query.filter_by(username=user.username).first()
+        if not patient_login:
+            return jsonify({'message': 'Unauthorized access'}), 403
+        query = Appointment.query.filter_by(patient=patient_login.patient_id)
+        appointments = query.order_by(Appointment.date.desc()).all()
+        return jsonify({
+            'appointments': [
+                {k: getattr(a, k) if k not in ['date', 'created_at'] else (getattr(a, k).isoformat() if getattr(a, k) else None) for k in allowed_fields}
+                for a in appointments
+            ]
+        }), 200
     else:
         return jsonify({'message': 'Unauthorized access'}), 403
     patient_id = request.args.get('patient_id', type=int)
@@ -824,6 +838,20 @@ def get_records():
         query = MedicalRecord.query
         if patient_id:
             query = query.filter_by(patient_id=patient_id)
+        records = query.order_by(MedicalRecord.created_at.desc()).all()
+        return jsonify({
+            'records': [
+                {k: getattr(r, k) if k != 'created_at' else (getattr(r, k).isoformat() if getattr(r, k) else None) for k in allowed_fields}
+                for r in records
+            ]
+        }), 200
+    # Patient: only their own records
+    elif has_role(user, 'Patient'):
+        allowed_fields = ['id', 'patient_id', 'diagnosis', 'prescription', 'created_at']
+        patient_login = PatientLogin.query.filter_by(username=user.username).first()
+        if not patient_login:
+            return jsonify({'message': 'Unauthorized access'}), 403
+        query = MedicalRecord.query.filter_by(patient_id=patient_login.patient_id)
         records = query.order_by(MedicalRecord.created_at.desc()).all()
         return jsonify({
             'records': [
@@ -930,12 +958,15 @@ def get_bills():
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
-    page = request.args.get('page', 1, type=int)
-    per_page = 10
     # Admin, Billing/Accountant: all bills
     if has_role(user, 'Admin') or has_role(user, 'Billing') or has_role(user, 'Accountant'):
         bills = Bill.query.order_by(Bill.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-    # Doctor, Nurse, Lab Tech, Pharmacist, Receptionist: no access
+    # Patient: only their own bills
+    elif has_role(user, 'Patient'):
+        patient_login = PatientLogin.query.filter_by(username=user.username).first()
+        if not patient_login:
+            return jsonify({'message': 'Unauthorized access'}), 403
+        bills = Bill.query.filter_by(patient_id=patient_login.patient_id).order_by(Bill.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     else:
         return jsonify({'message': 'Unauthorized access'}), 403
     return jsonify({
