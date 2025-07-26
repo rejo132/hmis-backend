@@ -1809,7 +1809,7 @@ def process_refund():
             return jsonify({'message': 'Bill not found'}), 404
         bill.payment_status = 'Refunded'
         db.session.commit()
-        audit_log = AuditLog(action='Bill refunded', user=current_user)
+        audit_log = AuditLog(action='Bill refunded', user=user.username)
         db.session.add(audit_log)
         db.session.commit()
         return jsonify({'message': 'Refund processed'}), 201
@@ -1825,7 +1825,7 @@ def process_refund():
 def process_claim():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Billing')):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
     if not data or not data.get('billId'):
@@ -1836,7 +1836,7 @@ def process_claim():
             return jsonify({'message': 'Bill not found'}), 404
         bill.payment_status = 'Claimed'
         db.session.commit()
-        audit_log = AuditLog(action='Bill claim submitted', user=current_user)
+        audit_log = AuditLog(action='Bill claim submitted', user=user.username)
         db.session.add(audit_log)
         db.session.commit()
         return jsonify({'message': 'Claim submitted'}), 201
@@ -1983,6 +1983,54 @@ def get_lab_orders():
             for l in lab_orders
         ]
     }), 200
+
+@app.route('/api/bills/patient/<int:patient_id>', methods=['GET'])
+@jwt_required()
+def get_bills_by_patient(patient_id):
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    if not user:
+        return jsonify({'message': 'Unauthorized access'}), 403
+    # Allow Admin, Billing, Accountant to access patient bills
+    if not (has_role(user, 'Admin') or has_role(user, 'Billing') or has_role(user, 'Accountant')):
+        return jsonify({'message': 'Unauthorized access'}), 403
+    try:
+        bills = Bill.query.filter_by(patient_id=patient_id).order_by(Bill.created_at.desc()).all()
+        return jsonify({
+            'bills': [bill.to_dict() for bill in bills]
+        }), 200
+    except Exception as e:
+        error_log = ErrorLog(error_message=str(e), user_id=user.id)
+        db.session.add(error_log)
+        db.session.commit()
+        return jsonify({'message': 'Error fetching patient bills'}), 500
+
+@app.route('/api/bills/<int:id>/status', methods=['PUT'])
+@jwt_required()
+def update_bill_status(id):
+    current_user = get_jwt_identity()
+    user = User.query.get(current_user)
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Billing')):
+        return jsonify({'message': 'Unauthorized access'}), 403
+    data = request.get_json()
+    if not data or not data.get('payment_status'):
+        return jsonify({'message': 'Missing required field: payment_status'}), 422
+    try:
+        bill = db.session.get(Bill, id)
+        if not bill:
+            return jsonify({'message': 'Bill not found'}), 404
+        bill.payment_status = data.get('payment_status')
+        db.session.commit()
+        audit_log = AuditLog(action=f'Bill status updated to {data.get("payment_status")}', user=user.username)
+        db.session.add(audit_log)
+        db.session.commit()
+        return jsonify({'message': 'Bill status updated'}), 200
+    except Exception as e:
+        db.session.rollback()
+        error_log = ErrorLog(error_message=str(e), user_id=user.id)
+        db.session.add(error_log)
+        db.session.commit()
+        return jsonify({'message': 'Error updating bill status'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
