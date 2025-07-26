@@ -2196,7 +2196,7 @@ def create_patient_visit():
     user = User.query.get(current_user)
     logger.info(f"PatientVisit creation request from user {current_user} with role {user.role if user else 'None'}")
     
-    if not user or not has_role(user, 'Receptionist'):
+    if not user or not (has_role(user, 'Receptionist') or has_role(user, 'Admin')):
         logger.warning(f"Unauthorized access attempt by user {current_user}")
         return jsonify({'message': 'Unauthorized access'}), 403
     
