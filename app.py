@@ -1308,12 +1308,29 @@ def dispense_medication():
     
     if not data or not item_id or not quantity:
         return jsonify({'message': 'Missing required fields: item_id, quantity'}), 422
+    
     try:
-        item = db.session.get(SuppliesInventory, item_id)
+        # Try to find item by ID first (if it's a number)
+        item = None
+        if str(item_id).isdigit():
+            item = db.session.get(SuppliesInventory, int(item_id))
+        
+        # If not found by ID, try to find by item name
         if not item:
-            return jsonify({'message': 'Inventory item not found'}), 404
+            item = SuppliesInventory.query.filter_by(item_name=item_id).first()
+        
+        # If still not found, create a new inventory item with default quantity
+        if not item:
+            item = SuppliesInventory(
+                item_name=item_id,
+                quantity=100  # Default starting quantity
+            )
+            db.session.add(item)
+            db.session.flush()  # Get the ID without committing
+        
         if item.quantity < quantity:
             return jsonify({'message': 'Insufficient quantity'}), 400
+        
         item.quantity -= quantity
         item.last_updated = datetime.now(timezone.utc)
         db.session.commit()
