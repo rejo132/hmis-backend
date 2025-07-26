@@ -1883,8 +1883,11 @@ def add_to_queue():
     data = request.get_json()
     patient_id = data.get('patient_id')
     name = data.get('name')
-    if not patient_id or not name:
-        return jsonify({'message': 'Missing patient_id or name'}), 422
+    if not name:
+        return jsonify({'message': 'Missing name'}), 422
+    # If patient_id is not provided, use a temporary ID for queue
+    if not patient_id:
+        patient_id = f"temp_{len(queue) + 1}"
     queue.append({'id': patient_id, 'name': name})
     return jsonify({'message': 'Added to queue'}), 201
 
