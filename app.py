@@ -777,22 +777,47 @@ def get_appointments():
     # Patient: only their own appointments (paginated)
     elif has_role(user, 'Patient'):
         allowed_fields = ['id', 'patient', 'date', 'doctor_id', 'reason', 'status', 'created_at']
+        # Try to find patient through PatientLogin first
         patient_login = PatientLogin.query.filter_by(username=user.username).first()
-        if not patient_login:
-            return jsonify({'message': 'Unauthorized access'}), 403
-        page = request.args.get('page', 1, type=int)
-        per_page = 10
-        query = Appointment.query.filter_by(patient=patient_login.patient_id)
-        appointments = query.order_by(Appointment.date.desc()).paginate(page=page, per_page=per_page, error_out=False)
-        return jsonify({
-            'appointments': [
-                {k: getattr(a, k) if k not in ['date', 'created_at'] else (getattr(a, k).isoformat() if getattr(a, k) else None) for k in allowed_fields}
-                for a in appointments.items
-            ],
-            'total': appointments.total,
-            'pages': appointments.pages,
-            'page': page
-        }), 200
+        patient_id = None
+        
+        if patient_login:
+            patient_id = patient_login.patient_id
+        else:
+            # Fallback: try to find patient by name (username)
+            patient = Patient.query.filter_by(name=user.username).first()
+            if patient:
+                patient_id = patient.id
+            else:
+                # If no patient found, return empty results instead of 403
+                return jsonify({
+                    'appointments': [],
+                    'total': 0,
+                    'pages': 0,
+                    'page': 1
+                }), 200
+        
+        if patient_id:
+            page = request.args.get('page', 1, type=int)
+            per_page = 10
+            query = Appointment.query.filter_by(patient=patient_id)
+            appointments = query.order_by(Appointment.date.desc()).paginate(page=page, per_page=per_page, error_out=False)
+            return jsonify({
+                'appointments': [
+                    {k: getattr(a, k) if k not in ['date', 'created_at'] else (getattr(a, k).isoformat() if getattr(a, k) else None) for k in allowed_fields}
+                    for a in appointments.items
+                ],
+                'total': appointments.total,
+                'pages': appointments.pages,
+                'page': page
+            }), 200
+        else:
+            return jsonify({
+                'appointments': [],
+                'total': 0,
+                'pages': 0,
+                'page': 1
+            }), 200
     else:
         return jsonify({'message': 'Unauthorized access'}), 403
     patient_id = request.args.get('patient_id', type=int)
@@ -867,22 +892,47 @@ def get_records():
     # Patient: only their own records (paginated)
     elif has_role(user, 'Patient'):
         allowed_fields = ['id', 'patient_id', 'diagnosis', 'prescription', 'created_at']
+        # Try to find patient through PatientLogin first
         patient_login = PatientLogin.query.filter_by(username=user.username).first()
-        if not patient_login:
-            return jsonify({'message': 'Unauthorized access'}), 403
-        page = request.args.get('page', 1, type=int)
-        per_page = 10
-        query = MedicalRecord.query.filter_by(patient_id=patient_login.patient_id)
-        records = query.order_by(MedicalRecord.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-        return jsonify({
-            'records': [
-                {k: getattr(r, k) if k != 'created_at' else (getattr(r, k).isoformat() if getattr(r, k) else None) for k in allowed_fields}
-                for r in records.items
-            ],
-            'total': records.total,
-            'pages': records.pages,
-            'page': page
-        }), 200
+        patient_id = None
+        
+        if patient_login:
+            patient_id = patient_login.patient_id
+        else:
+            # Fallback: try to find patient by name (username)
+            patient = Patient.query.filter_by(name=user.username).first()
+            if patient:
+                patient_id = patient.id
+            else:
+                # If no patient found, return empty results instead of 403
+                return jsonify({
+                    'records': [],
+                    'total': 0,
+                    'pages': 0,
+                    'page': 1
+                }), 200
+        
+        if patient_id:
+            page = request.args.get('page', 1, type=int)
+            per_page = 10
+            query = MedicalRecord.query.filter_by(patient_id=patient_id)
+            records = query.order_by(MedicalRecord.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+            return jsonify({
+                'records': [
+                    {k: getattr(r, k) if k != 'created_at' else (getattr(r, k).isoformat() if getattr(r, k) else None) for k in allowed_fields}
+                    for r in records.items
+                ],
+                'total': records.total,
+                'pages': records.pages,
+                'page': page
+            }), 200
+        else:
+            return jsonify({
+                'records': [],
+                'total': 0,
+                'pages': 0,
+                'page': 1
+            }), 200
     else:
         return jsonify({'message': 'Unauthorized access'}), 403
     # Existing logic for other roles
@@ -987,10 +1037,35 @@ def get_bills():
         bills = Bill.query.order_by(Bill.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
     # Patient: only their own bills (paginated)
     elif has_role(user, 'Patient'):
+        # Try to find patient through PatientLogin first
         patient_login = PatientLogin.query.filter_by(username=user.username).first()
-        if not patient_login:
-            return jsonify({'message': 'Unauthorized access'}), 403
-        bills = Bill.query.filter_by(patient_id=patient_login.patient_id).order_by(Bill.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+        patient_id = None
+        
+        if patient_login:
+            patient_id = patient_login.patient_id
+        else:
+            # Fallback: try to find patient by name (username)
+            patient = Patient.query.filter_by(name=user.username).first()
+            if patient:
+                patient_id = patient.id
+            else:
+                # If no patient found, return empty results instead of 403
+                return jsonify({
+                    'bills': [],
+                    'total': 0,
+                    'pages': 0,
+                    'page': page
+                }), 200
+        
+        if patient_id:
+            bills = Bill.query.filter_by(patient_id=patient_id).order_by(Bill.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+        else:
+            return jsonify({
+                'bills': [],
+                'total': 0,
+                'pages': 0,
+                'page': page
+            }), 200
     else:
         return jsonify({'message': 'Unauthorized access'}), 403
     return jsonify({
