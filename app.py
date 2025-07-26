@@ -817,11 +817,11 @@ def get_records():
     # Receptionist: only appointment/registration/check-in/out, limited demographics (simulate by filtering fields in to_dict)
     elif has_role(user, 'Receptionist'):
         query = MedicalRecord.query
+    # Pharmacist: only prescription-related fields
+    elif has_role(user, 'Pharmacist'):
+        query = MedicalRecord.query
     # Billing/Accountant: no access
     elif has_role(user, 'Billing') or has_role(user, 'Accountant'):
-        return jsonify({'message': 'Unauthorized access'}), 403
-    # Pharmacist: no access
-    elif has_role(user, 'Pharmacist'):
         return jsonify({'message': 'Unauthorized access'}), 403
     else:
         return jsonify({'message': 'Unauthorized access'}), 403
@@ -839,6 +839,9 @@ def get_records():
             return {k: v for k, v in data.items() if k in allowed}
         if has_role(user, 'Receptionist'):
             allowed = ['id', 'patient_id', 'created_at'] # Simulate demographics
+            return {k: v for k, v in data.items() if k in allowed}
+        if has_role(user, 'Pharmacist'):
+            allowed = ['id', 'patient_id', 'prescription', 'diagnosis', 'created_at']
             return {k: v for k, v in data.items() if k in allowed}
         return data
     return jsonify({
