@@ -868,7 +868,7 @@ def get_records():
 def create_bill():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Billing') or has_role(user, 'Accountant')):
         return jsonify({'message': 'Unauthorized access'}), 403
     data = request.get_json()
     if not data or not data.get('patient_id') or not data.get('amount'):
@@ -883,7 +883,7 @@ def create_bill():
             description=data.get('description')
         )
         db.session.add(bill)
-        audit_log = AuditLog(action='Bill created', user=current_user)
+        audit_log = AuditLog(action='Bill created', user=user.username)
         db.session.add(audit_log)
         db.session.commit()
         return jsonify({'message': 'Bill created'}), 201
