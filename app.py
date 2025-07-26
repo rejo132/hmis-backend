@@ -1310,6 +1310,12 @@ def dispense_medication():
         return jsonify({'message': 'Missing required fields: item_id, quantity'}), 422
     
     try:
+        # Convert quantity to integer
+        try:
+            quantity = int(quantity)
+        except (ValueError, TypeError):
+            return jsonify({'message': 'Invalid quantity value'}), 422
+        
         # Try to find item by ID first (if it's a number)
         item = None
         if str(item_id).isdigit():
@@ -1334,7 +1340,7 @@ def dispense_medication():
         item.quantity -= quantity
         item.last_updated = datetime.now(timezone.utc)
         db.session.commit()
-        audit_log = AuditLog(action='Medication dispensed', user=current_user)
+        audit_log = AuditLog(action='Medication dispensed', user=user.username)
         db.session.add(audit_log)
         db.session.commit()
         return jsonify({'message': 'Medication dispensed'}), 201
