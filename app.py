@@ -999,7 +999,7 @@ def create_radiology_order():
 def get_employees():
     current_user = get_jwt_identity()
     user = User.query.get(current_user)
-    if not user or not has_role(user, 'Admin'):
+    if not user or not (has_role(user, 'Admin') or has_role(user, 'Receptionist')):
         return jsonify({'message': 'Unauthorized access'}), 403
     page = request.args.get('page', 1, type=int)
     per_page = 10
